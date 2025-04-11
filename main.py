@@ -3,7 +3,7 @@ from flask_cors import CORS
 from crewai import Agent, Task, Crew, LLM
 from crewai.tasks.output_format import OutputFormat
 from pydantic import BaseModel
-import json, re, csv, os
+import json, re, csv, os, time
 
 app = Flask(__name__)
 CORS(app, supports_credentials=True, origins="*", methods=["GET", "POST", "OPTIONS"], allow_headers=["Content-Type"])
@@ -18,7 +18,7 @@ class Analogy(BaseModel):
 FEEDBACK_CSV = "feedback.csv"
 
 # Initialize LLM (using Ollama for local models; switch to "gpt-4" or another if needed)
-llm = LLM(model="ollama/deepseek-llm:7b")
+llm = LLM(model="ollama/deepseek-r1:14b")
 
 def parse_final_answer(agent_output: str) -> dict:
     """
@@ -35,9 +35,7 @@ def parse_final_answer(agent_output: str) -> dict:
             print(f"JSON parse error: {e}")
     return {}
 
-# ----------------------------------------------------------------------------
-# Agent Definitions
-# ----------------------------------------------------------------------------
+### Agent Definitions
 
 # Agent 1: Domain Analyzer
 domain_analyzer = Agent(
@@ -106,6 +104,7 @@ def generate_analogy():
         return jsonify({"error": "No concept provided."}), 400
 
     try:
+        start_time = time.perf_counter()
         # ------------------------------------------------
         # Task 1: Domain Analysis
         # ------------------------------------------------
@@ -266,18 +265,23 @@ def generate_analogy():
             process="sequential"
         )
 
-        # Execute the multi-step process
         crew_result = crew.kickoff()
-        print("Crew Output:", crew_result.json)
+        # Convert the crew's JSON output from a string to a dictionary
+        final_json = json.loads(crew_result.json)
+        # Calculate runtime and inject into the final JSON
+        runtime = time.perf_counter() - start_time
+        final_json["runtime_seconds"] = runtime
+        print("Crew Output with runtime:", final_json)
 
-        return crew_result.json
+
+        return jsonify(final_json)
 
     except Exception as e:
         print("Error:", e)
         return jsonify({"error": str(e)}), 500
 
 # ----------------------------------------------------------------------------
-# Feedback Submission Endpoint (Unchanged)
+# Feedback Submission Endpoint
 # ----------------------------------------------------------------------------
 
 @app.route("/submit_feedback", methods=["POST"])
@@ -285,9 +289,8 @@ def submit_feedback():
     data = request.json
     required_fields = [
         "target_domain", "final_analogy", "source_domain", "explanation",
-        "rating_clarity", "rating_relational", "rating_familiarity", "rating_overall"
+        "rating_clarity", "rating_relational", "rating_familiarity", "rating_overall", "runtime_seconds"
     ]
-    # Check all required rating fields
     for field in required_fields:
         if field not in data:
             return jsonify({"error": f"Missing field: {field}"}), 400
@@ -297,7 +300,7 @@ def submit_feedback():
         fieldnames = [
             "target_domain", "final_analogy", "source_domain", "explanation",
             "rating_clarity", "rating_relational", "rating_familiarity", "rating_overall",
-            "comment"
+            "runtime_seconds", "comment"
         ]
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         if not file_exists:
@@ -311,10 +314,12 @@ def submit_feedback():
             "rating_relational": data.get("rating_relational"),
             "rating_familiarity": data.get("rating_familiarity"),
             "rating_overall": data.get("rating_overall"),
+            "runtime_seconds": data.get("runtime_seconds"),
             "comment": data.get("comment", "")
         })
 
     return jsonify({"message": "Feedback submitted successfully."}), 200
 
 if __name__ == "__main__":
+    import csv
     app.run(debug=True)
