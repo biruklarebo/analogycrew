@@ -18,7 +18,11 @@ class Analogy(BaseModel):
 FEEDBACK_CSV = "feedback.csv"
 
 # Initialize LLM (using Ollama for local models; switch to "gpt-4" or another if needed)
-llm = LLM(model="ollama/deepseek-r1:14b")
+llm = LLM(
+    api_key="GOOGLE_API_KEY",
+    model="gemini/gemini-2.0-flash",
+)
+# llm = LLM(model="ollama/deepseek-r1:14b")
 
 def parse_final_answer(agent_output: str) -> dict:
     """
